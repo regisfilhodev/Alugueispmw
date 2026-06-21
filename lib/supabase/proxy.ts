@@ -29,10 +29,17 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protect dashboard routes
+  // ✅ Proteger dashboard routes
   if (request.nextUrl.pathname.startsWith("/dashboard") && !user) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"
+    return NextResponse.redirect(url)
+  }
+
+  // ✅ Verificar email confirmado
+  if (request.nextUrl.pathname.startsWith("/dashboard") && user && !user.email_confirmed_at) {
+    const url = request.nextUrl.clone()
+    url.pathname = "/auth/verify-email"
     return NextResponse.redirect(url)
   }
 

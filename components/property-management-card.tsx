@@ -132,7 +132,7 @@ export function PropertyManagementCard({ property }: PropertyManagementCardProps
                     <Eye className="h-4 w-4 mr-2" />
                     Ver Detalhes
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer">
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => router.push(`/dashboard/new-property?editId=${property.id}`)}>
                     <Edit className="h-4 w-4 mr-2" />
                     Editar
                   </DropdownMenuItem>
