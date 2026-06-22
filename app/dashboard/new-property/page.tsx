@@ -1,3 +1,5 @@
+"use client"
+
 export default async function NewPropertyPage({ 
   searchParams 
 }: { 
@@ -12,8 +14,6 @@ export default async function NewPropertyPage({
     </Suspense>
   )
 }
-
-"use client"
 
 import type React from "react"
 import { Suspense } from "react"
