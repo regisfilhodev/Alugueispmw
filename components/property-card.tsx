@@ -1,8 +1,11 @@
+"use client"
+
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { BedDouble, Bath, Maximize, MessageCircle } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 interface PropertyCardProps {
   property: {
@@ -23,6 +26,7 @@ interface PropertyCardProps {
 }
 
 export function PropertyCard({ property }: PropertyCardProps) {
+  const router = useRouter()
   const primaryImage = property.property_images?.find((img) => img.is_primary)
   const imageUrl =
     primaryImage?.image_url ||
@@ -46,6 +50,44 @@ export function PropertyCard({ property }: PropertyCardProps) {
   )
   const whatsappLink = `https://wa.me/${property.whatsapp.replace(/\D/g, "")}?text=${whatsappMessage}`
 
+  const handleCardClick = () => {
+    router.push(`/property/${property.id}`)
+  }
+
+  return (
+    <Card
+      className="overflow-hidden border-amber-200 hover:shadow-lg transition-shadow cursor-pointer hover:scale-[1.02] transition-transform"
+      onClick={handleCardClick}
+    >
+        <div className="relative h-48 overflow-hidden">
+          <img src={imageUrl || "/placeholder.svg"} alt={property.title} className="w-full h-full object-cover" />
+          <Badge className="absolute top-3 right-3 bg-amber-600 text-white">{typeLabels[property.property_type]}</Badge>
+        </div>
+
+        <CardContent className="p-4">
+          <div className="mb-2">
+            <h3 className="text-lg font-semibold text-amber-900 line-clamp-1">{property.title}</h3>
+            <p className="text-sm text-amber-700 line-clamp-1">{property.address}</p>
+          </div>
+
+          <p className="text-2xl font-bold text-amber-600 mb-3">
+            R$ {property.price.toLocaleString("pt-BR")}
+            <span className="text-sm text-amber-700 font-normal">/mês</span>
+          </p>
+
+          <div className="flex items-center gap-4 text-sm text-amber-700 mb-3">
+            <div className="flex items-center gap-1">
+              <BedDouble className="h-4 w-4" />
+              <span>{property.bedrooms} quartos</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Bath className="h-4 w-4" />
+              <span>{property.bathrooms} banheiros</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Maximize className="h-4 w-4" />
+              <span>{property.area_sqm}m²</span>
+            </div>
   return (
     <Card className="overflow-hidden border-border/50 bg-card hover:shadow-2xl hover:shadow-primary/10 transition-all duration-500 group flex flex-col">
       <div className="relative h-64 overflow-hidden">
@@ -97,9 +139,27 @@ export function PropertyCard({ property }: PropertyCardProps) {
               </Badge>
             ))}
           </div>
-        )}
-      </CardContent>
 
+          {amenities.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {amenities.map((amenity, idx) => (
+                <Badge key={idx} variant="outline" className="text-xs border-amber-300 text-amber-700">
+                  {amenity}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+
+        <CardFooter className="p-4 pt-0">
+          <Link href={whatsappLink} target="_blank" rel="noopener noreferrer" className="w-full" onClick={(e) => e.stopPropagation()}>
+            <Button className="w-full bg-green-600 hover:bg-green-700 text-white">
+              <MessageCircle className="h-4 w-4 mr-2" />
+              Chamar no WhatsApp
+            </Button>
+          </Link>
+        </CardFooter>
+      </Card>
       <CardFooter className="p-5 pt-0 mt-auto">
         <Link href={whatsappLink} target="_blank" rel="noopener noreferrer" className="w-full">
           <Button className="w-full bg-[#25D366] hover:bg-[#20bd5a] text-white shadow-lg shadow-[#25D366]/20 transition-all group-hover:shadow-[#25D366]/40">

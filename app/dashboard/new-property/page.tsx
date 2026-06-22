@@ -1,6 +1,22 @@
 "use client"
 
+export default async function NewPropertyPage({ 
+  searchParams 
+}: { 
+  searchParams: Promise<{ editId?: string }> 
+}) {
+  const resolvedParams = await searchParams
+  const editId = resolvedParams?.editId
+  
+  return (
+    <Suspense fallback={<div>Carregando...</div>}>
+      <NewPropertyContent editId={editId} />
+    </Suspense>
+  )
+}
+
 import type React from "react"
+import { Suspense } from "react"
 
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -21,7 +37,7 @@ interface Amenity {
   icon: string | null
 }
 
-export default function NewPropertyPage() {
+function NewPropertyContent({ editId }: { editId?: string }) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +54,10 @@ export default function NewPropertyPage() {
   const [areaSqm, setAreaSqm] = useState("")
   const [propertyType, setPropertyType] = useState("house")
   const [whatsapp, setWhatsapp] = useState("")
+  const [images, setImages] = useState<File[]>([])
+  const [previews, setPreviews] = useState<string[]>([])
+  const [existingImageUrls, setExistingImageUrls] = useState<string[]>([])
+  const [isEditing, setIsEditing] = useState(false)
 
   useEffect(() => {
     async function fetchAmenities() {
@@ -54,11 +74,86 @@ export default function NewPropertyPage() {
     fetchAmenities()
   }, [])
 
+  // If ?editId=xxx is present, fetch property and prefill form
+  useEffect(() => {
+    // Get editId from URL search params
+    const params = new URLSearchParams(window.location.search)
+    const editId = params.get("editId")
+    
+    if (!editId) return
+
+    setIsLoading(true)
+    setIsEditing(true)
+
+    async function fetchProperty() {
+      try {
+        const supabase = createClient()
+
+        const { data: property, error: propError } = await supabase
+          .from("properties")
+          .select("*")
+          .eq("id", editId)
+          .single()
+
+        if (propError) throw propError
+
+        if (property) {
+          setTitle(property.title || "")
+          setDescription(property.description || "")
+          setPrice(property.price?.toString() || "")
+          setAddress(property.address || "")
+          setBedrooms(property.bedrooms?.toString() || "")
+          setBathrooms(property.bathrooms?.toString() || "")
+          setAreaSqm(property.area_sqm?.toString() || "")
+          setPropertyType(property.property_type || "house")
+          setWhatsapp(property.whatsapp || "")
+
+          // fetch images
+          const { data: imgs } = await supabase.from("property_images").select("*").eq("property_id", editId).order("is_primary", { ascending: false })
+          if (imgs) {
+            const urls = imgs.map((i: any) => i.image_url)
+            setExistingImageUrls(urls)
+            setPreviews(urls)
+          }
+
+          // fetch amenities
+          const { data: propAmenities } = await supabase.from("property_amenities").select("amenity_id").eq("property_id", editId)
+          if (propAmenities) {
+            setSelectedAmenities(propAmenities.map((a: any) => a.amenity_id))
+          }
+        }
+      } catch (err) {
+        console.error("[v0] Error pre-filling property:", err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchProperty()
+  }, [])
+
   const handleAmenityToggle = (amenityId: string) => {
     setSelectedAmenities((prev) =>
       prev.includes(amenityId) ? prev.filter((id) => id !== amenityId) : [...prev, amenityId],
     )
   }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    const arr = Array.from(files)
+    setImages(arr)
+
+    const urls = arr.map((f) => URL.createObjectURL(f))
+    setPreviews(urls)
+  }
+
+  // Revoke object URLs on unmount or when previews change
+  useEffect(() => {
+    return () => {
+      previews.forEach((u) => URL.revokeObjectURL(u))
+    }
+  }, [previews])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,10 +172,20 @@ export default function NewPropertyPage() {
         throw new Error("Você precisa estar autenticado para criar um imóvel")
       }
 
-      // Insert property
-      const { data: property, error: propertyError } = await supabase
-        .from("properties")
-        .insert({
+      console.log('[v0] authenticated user id:', user.id)
+
+      // Require at least 2 images total (existing + new)
+      if ((existingImageUrls.length + images.length) < 2) {
+        throw new Error("Por favor envie pelo menos 2 imagens do imóvel")
+      }
+
+      let property: any = null
+
+      if (isEditing && editId) {
+        // Update existing property
+        const { data: updated, error: updateError } = await supabase
+          .from("properties")
+          .update({
           owner_id: user.id,
           title,
           description,
@@ -93,21 +198,84 @@ export default function NewPropertyPage() {
           whatsapp,
           status: "available",
         })
-        .select()
-        .single()
+          .eq("id", editId)
+          .eq("owner_id", user.id)  // ✅ IDOR protection
+          .select()
+          .single()
 
-      if (propertyError) throw propertyError
+        if (updateError) throw updateError
+        property = updated
+      } else {
+        // Insert property
+        const { data: inserted, error: propertyError } = await supabase
+          .from("properties")
+          .insert({
+            owner_id: user.id,
+            title,
+            description,
+            price: Number.parseFloat(price),
+            address,
+            bedrooms: Number.parseInt(bedrooms),
+            bathrooms: Number.parseInt(bathrooms),
+            area_sqm: Number.parseInt(areaSqm),
+            property_type: propertyType,
+            whatsapp,
+            status: "available",
+          })
+          .select()
+          .single()
 
-      // Insert property amenities
+        if (propertyError) throw propertyError
+        property = inserted
+      }
+      // Insert/Update property amenities
       if (selectedAmenities.length > 0 && property) {
         const amenityInserts = selectedAmenities.map((amenityId) => ({
           property_id: property.id,
           amenity_id: amenityId,
         }))
 
+        // simple approach: delete existing and insert new
+        await supabase.from("property_amenities").delete().eq("property_id", property.id)
         const { error: amenitiesError } = await supabase.from("property_amenities").insert(amenityInserts)
 
         if (amenitiesError) throw amenitiesError
+      }
+
+      // Upload new images to storage and insert image records
+      if (property) {
+        // if editing and there are existing images, keep them; only upload new File objects
+        for (let i = 0; i < images.length; i++) {
+          const file = images[i]
+
+          // only handle File/Blob objects (ignore existing URL strings)
+          if (!(file instanceof File)) {
+            console.warn('[v0] Skipping upload: not a File object', file)
+            continue
+          }
+
+          console.log('[v0] Uploading image:', file.name)
+
+          const formData = new FormData()
+          formData.append("file", file)
+          formData.append("propertyId", property.id)
+          formData.append("fileIndex", i.toString())
+          formData.append("isPrimary", (existingImageUrls.length === 0 && i === 0).toString())
+
+          const uploadResponse = await fetch("/api/upload-property-image", {
+            method: "POST",
+            body: formData,
+          })
+
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json()
+            console.error('[v0] Upload API error:', errorData)
+            throw new Error(`Erro ao enviar imagem: ${errorData.error || uploadResponse.statusText}`)
+          }
+
+          const uploadResult = await uploadResponse.json()
+          console.log('[v0] Image uploaded successfully:', uploadResult.url)
+        }
       }
 
       // Redirect to dashboard
@@ -298,6 +466,28 @@ export default function NewPropertyPage() {
               </div>
 
               {/* Contact */}
+              {/* Images */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-amber-900">Imagens do Imóvel</h3>
+                <p className="text-sm text-amber-600">Envie pelo menos 2 imagens. A primeira será marcada como principal.</p>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageChange}
+                  className="mt-2"
+                />
+
+                {previews.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {previews.map((src, idx) => (
+                      <div key={idx} className="w-full h-24 overflow-hidden rounded-md border border-amber-200">
+                        <img src={src} alt={`preview-${idx}`} className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-amber-900">Contato</h3>
 
